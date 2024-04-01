@@ -33,6 +33,7 @@ def main ():
     print("This is the main function in this Python P2P Program. (Client)")
     client = Client('localhost', 9999) 
     client.connect()
+    client.read_data()
 #    client.close()
    
     
