@@ -55,7 +55,7 @@ class Server:
             client_thread = threading.Thread(target=self.handle_client, args=(client_socket,)) ##please please please dont elimate the ,. (needed as Thread expects a tuple)
             client_thread.start()
     def handle_client(self, client_socket):
-        print("Handling client @ {}".format(client_socket))
+        #print("Handling client @ {}".format(client_socket))
         while True:
             try:
                 ##message = input("Enter message to send to client: ")  # Get message from user
@@ -64,7 +64,7 @@ class Server:
                 connection_list_json = json.dumps(connection_list)
                 time.sleep(5)
                 client_socket.send(connection_list_json.encode())
-                self.print_connections() ## development line
+                #self.print_connections() ## development line
             except ConnectionResetError:
                 print("Connection closed by the client.")
                 self.connections.remove(client_socket)
