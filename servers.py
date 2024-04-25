@@ -56,6 +56,13 @@ class Server:
             client_thread.start()
     def handle_client(self, client_socket):
         #print("Handling client @ {}".format(client_socket))
+        # Receive file list from client upon connection
+        file_list_data = client_socket.recv(4096).decode()
+        file_list = json.loads(file_list_data)
+        print("Received file list from client:")
+        for file_name, file_size in file_list:
+            print("{} - {} bytes".format(file_name, file_size))
+
         while True:
             try:
                 ##message = input("Enter message to send to client: ")  # Get message from user
