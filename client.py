@@ -2,6 +2,7 @@ import socket
 import threading
 import ast
 import os
+import json
 
 def read_setup(file_name):
     try:
@@ -31,8 +32,8 @@ def files_in_dir(filepath):
     for file in files_list:
         files_with_size.append((file,os.path.getsize(filepath+file)))
         #print((file,os.path.getsize(filepath+file)))
-    print(files_with_size)
-    
+   # print(files_with_size)
+    return files_with_size
     
 class Client:
     def get_local_ip(self):
@@ -41,7 +42,11 @@ class Client:
             return local_ip
         except socket.error:
             return None
-
+    def send_file_list(self):
+        file_list = files_in_dir(self.file_path)
+        file_list_json = json.dumps(file_list)
+        self.client_socket.send(file_list_json.encode())
+    
     def __init__(self):
         setup_info = read_setup("setup.txt")
         self.host = setup_info['Tracker IP']
@@ -53,6 +58,7 @@ class Client:
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect((self.host, self.port))
         print("Connected to server at {}:{}".format(self.host, self.port))
+        self.send_file_list() 
 
     def close(self):
         self.client_socket.close()
@@ -89,10 +95,10 @@ class Client:
                         ip, port = conn_str.strip("('')").split("', ")
                     
                         if ip != system_ip:
-                            print(system_ip, " vs ", ip)
+                           # print(system_ip, " vs ", ip)
                             connection_list.append((ip, int(port)))
 
-                    print("Filtered Connection List:", connection_list)
+                    #print("Filtered Connection List:", connection_list)
                     #if len(connection_list) > 0:
                         #self.connect_to_all(connection_list)
                     #print(system_ip + " is this machine")
@@ -105,8 +111,8 @@ class Client:
 def main():
     print("This is the main function in this Python P2P Program. (Client)")
     client = Client() 
-    print("The files on this machine are : ")
-    files_in_dir(client.file_path)
+    print("The files on this machine are : ",files_in_dir(client.file_path))
+    
     client.connect()
     client.read_data()
 
