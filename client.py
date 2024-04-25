@@ -1,6 +1,7 @@
 import socket
 import threading
 import ast
+import os
 
 def read_setup(file_name):
     try:
@@ -13,12 +14,25 @@ def read_setup(file_name):
                 elif line.startswith("Port:"):
                     port = int(line.split("Port:")[1].strip())
                     setup_info['Port'] = port
+                elif line.startswith("File Path:"):
+                    fileP = line.split("File Path:")[1].strip()
+                    setup_info['File Path'] = fileP
             return setup_info
         print("Tracker IP or Port not found in the file.")
         return None
     except IOError:
         print("File not found.")
         return None
+def files_in_dir(filepath):
+    files_list=(os.listdir(filepath))
+    files_with_size =[]
+    print("Files in ", filepath," : ")
+    #print(files_list)
+    for file in files_list:
+        files_with_size.append((file,os.path.getsize(filepath+file)))
+        #print((file,os.path.getsize(filepath+file)))
+    print(files_with_size)
+    
     
 class Client:
     def get_local_ip(self):
@@ -33,7 +47,7 @@ class Client:
         self.host = setup_info['Tracker IP']
         self.port = setup_info['Port']
         self.client_socket = None
-        
+        self.file_path=setup_info['File Path']        
 
     def connect(self):
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -91,6 +105,8 @@ class Client:
 def main():
     print("This is the main function in this Python P2P Program. (Client)")
     client = Client() 
+    print("The files on this machine are : ")
+    files_in_dir(client.file_path)
     client.connect()
     client.read_data()
 
