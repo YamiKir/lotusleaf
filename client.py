@@ -83,24 +83,27 @@ class Client:
 
 
     def download_list(self):
-        unique_names = set()
+        file_ip_mapping = {}
 
         with self.lock:
-            for files_json in self.files_per_client.values():
+            for ip, files_json in self.files_per_client.items():
                 files_list = json.loads(files_json)
                 for file_info in files_list:
                     if len(file_info) >= 1:
                         file_name = file_info[0]
-                        unique_names.add(file_name)
+                        if file_name not in file_ip_mapping:
+                            file_ip_mapping[file_name] = []
+                        file_ip_mapping[file_name].append(ip)
 
-        return list(unique_names)
+        return file_ip_mapping
 
-
-
-
-    
-
-
+    def download_file_from_ips(self, file_name, ips):
+        for ip in ips:
+            try:
+                print("Attempting to download {} from {}".format(file_name, ip))
+                # Implement the code to connect to the IP and download the file here
+            except Exception as e:
+                print("Error while downloading from {}: {}".format(ip, e))
 
 def read_user_input(client):
     while True:
@@ -108,13 +111,15 @@ def read_user_input(client):
         if command == 'view':
             print(client.files_per_client)
         elif command == 'download':
-            down_list=client.download_list()
-            print(down_list)
-            if len(down_list)>0: 
-                chosen_file=input("Enter the name of the file you want to download: ").strip().lower()
-                while chosen_file not in down_list:
-                    chosen_file=input("Enter the name of the file you want to download: ").strip().lower()
-                print("{} is about to be downloaded from your peers".format(chosen_file))
+            file_ip_mapping = client.download_list()
+            print("Available files for download:")
+            for file_name in file_ip_mapping.keys():
+                print("- {}".format(file_name))
+            chosen_file = input("Enter the name of the file you want to download: ").strip().lower()
+            if chosen_file in file_ip_mapping:
+                client.download_file_from_ips(chosen_file, file_ip_mapping[chosen_file])
+            else:
+                print("File not found.")
         elif command == 'exit':
             client.close()
             sys.exit()
