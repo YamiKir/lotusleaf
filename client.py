@@ -18,6 +18,9 @@ def read_setup(file_name):
                 elif line.startswith("File Path:"):
                     file_path = line.split("File Path:")[1].strip()
                     setup_info['File Path'] = file_path
+                elif line.startswith("Download Path:"):
+                    file_path = line.split("Download Path:")[1].strip()
+                    setup_info['Download Path'] = file_path
             return setup_info
     except IOError:
         print("File not found.")
@@ -35,6 +38,7 @@ class Client:
         self.port = setup_info['Port']
         self.client_socket = None
         self.file_path = setup_info['File Path']
+        self.download = setup_info['Download Path']
         self.files_per_client = {}
         self.lock = threading.Lock()
 
@@ -43,7 +47,9 @@ class Client:
         self.client_socket.connect((self.host, self.port))
         print("Connected to server at {}:{}".format(self.host, self.port))
         self.send_file_list()
+        self.start_listening()
         self.start_reading_data()
+        
 
     def close(self):
         with self.lock:
@@ -98,12 +104,79 @@ class Client:
         return file_ip_mapping
 
     def download_file_from_ips(self, file_name, ips):
+        download_location=self.download
         for ip in ips:
             try:
                 print("Attempting to download {} from {}".format(file_name, ip))
-                # Implement the code to connect to the IP and download the file here
+                # Connect to the IP on self.port
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as download_socket:
+                    download_socket.connect((ip, self.port))
+
+                    # Send the file name to request the file
+                    download_socket.send(file_name.encode())
+
+                    # Receive the file data
+                    received_data = b""
+                    while True:
+                        data = download_socket.recv(4096)
+                        if not data:
+                            break
+                        received_data += data
+
+                    # Save the received file data to the specified download location
+                    file_path = os.path.join(download_location, file_name)
+                    with open(file_path, 'wb') as file:
+                        file.write(received_data)
+
+                    print("Download of {} from {} completed. Saved to {}".format(file_name, ip, file_path))
+
             except Exception as e:
                 print("Error while downloading from {}: {}".format(ip, e))
+    def listening(self):
+        listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listen_socket.bind((self.get_local_ip(), self.port))
+        listen_socket.listen(5)
+        print("Listening for incoming connections on {}:{}".format(self.get_local_ip(), self.port))
+
+        while True:
+            client_socket, client_address = listen_socket.accept()
+            print("Connection from {}:{}".format(client_address[0], client_address[1]))
+
+            # Handle the connection in a separate thread
+            client_thread = threading.Thread(target=self.handle_incoming_connection, args=(client_socket,))
+            client_thread.start()
+
+    def start_listening(self):
+        data_listening_thread = threading.Thread(target=self.listening)
+        data_listening_thread.daemon = True
+        data_listening_thread.start()
+
+    def handle_incoming_connection(self, client_socket):
+        try:
+            # Receive data from the client
+            data = client_socket.recv(4096)
+
+            if data:
+                # Decode the received data (assuming it's a file name)
+                file_name = data.decode()
+
+                # Check if the requested file exists
+                file_path = os.path.join(self.file_path, file_name)
+                if os.path.exists(file_path):
+                    # Open the file and send its contents to the client
+                    with open(file_path, 'rb') as file:
+                        file_data = file.read()
+                        client_socket.sendall(file_data)
+                        print("File {} sent to {}".format(file_name, client_socket.getpeername()))
+                else:
+                    # Send a message indicating that the file doesn't exist
+                    error_message = "File {} not found".format(file_name)
+                    client_socket.sendall(error_message.encode())
+        except Exception as e:
+            print("Error handling incoming connection:", e)
+        finally:
+            # Close the client socket
+            client_socket.close()
 
 def read_user_input(client):
     while True:
@@ -125,6 +198,8 @@ def read_user_input(client):
             sys.exit()
         else:
             print("Invalid command. Type 'exit' to quit.")
+
+        
 
 def main():
     print("This is the main function in this Python P2P Program. (Client)")
