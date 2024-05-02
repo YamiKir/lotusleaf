@@ -1,8 +1,7 @@
 import socket
 import threading
 import json
-import os
-import sys
+import time
 
 def read_setup(file_name):
     try:
@@ -15,211 +14,99 @@ def read_setup(file_name):
                 elif line.startswith("Port:"):
                     port = int(line.split("Port:")[1].strip())
                     setup_info['Port'] = port
-                elif line.startswith("File Path:"):
-                    file_path = line.split("File Path:")[1].strip()
-                    setup_info['File Path'] = file_path
-                elif line.startswith("Download Path:"):
-                    file_path = line.split("Download Path:")[1].strip()
-                    setup_info['Download Path'] = file_path
             return setup_info
-    except IOError:
+        print("Tracker IP or Port not found in the file.")
+        return None
+    except FileNotFoundError:
         print("File not found.")
         return None
+    
+# Define the Server class
+class Server:
+    MAX_WAITING = 3  # Max number of waiting connections
 
-def files_in_dir(filepath):
-    files_list = os.listdir(filepath)
-    files_with_size = [(file, os.path.getsize(os.path.join(filepath, file))) for file in files_list]
-    return files_with_size
-
-class Client:
     def __init__(self):
         setup_info = read_setup("setup.txt")
         self.host = setup_info['Tracker IP']
         self.port = setup_info['Port']
-        self.client_socket = None
-        self.file_path = setup_info['File Path']
-        self.download = setup_info['Download Path']
-        self.files_per_client = {}
-        self.lock = threading.Lock()
+        self.connections = []
+        self.files_per_client = {}  # Dictionary to store files per client
+        self.server_socket = None
 
-    def connect(self):
-        self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket.connect((self.host, self.port))
-        print("Connected to server at {}:{}".format(self.host, self.port))
-        self.send_file_list()
-        self.start_listening()
-        self.start_reading_data()
+    def start(self):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         
-
-    def close(self):
-        with self.lock:
-            self.client_socket.close()
-            print("Connection closed")
-
-    def send_file_list(self):
-        file_list = files_in_dir(self.file_path)
-        file_list_json = json.dumps(file_list)
-        data_to_send = {'ip': self.get_local_ip(), 'files': file_list_json}
-        with self.lock:
-            self.client_socket.send(json.dumps(data_to_send).encode())
-
-    def read_data(self):
-        while True:
-            try:
-                data = self.client_socket.recv(4096)
-                if data:
-                    with self.lock:
-                        files_per_client_json = data.decode()
-                        self.files_per_client = json.loads(files_per_client_json)
-            except Exception as e:
-                print("Error while reading data:", e)
-                break
-
-    def get_local_ip(self):
-        try:
-            local_ip = socket.gethostbyname(socket.gethostname())
-            return local_ip
-        except socket.error:
-            return None
-
-    def start_reading_data(self):
-        data_reading_thread = threading.Thread(target=self.read_data)
-        data_reading_thread.daemon = True
-        data_reading_thread.start()
-
-
-    def download_list(self):
-        file_ip_mapping = {}
-
-        with self.lock:
-            for ip, files_json in self.files_per_client.items():
-                files_list = json.loads(files_json)
-                for file_info in files_list:
-                    if len(file_info) >= 1:
-                        file_name = file_info[0]
-                        if file_name not in file_ip_mapping:
-                            file_ip_mapping[file_name] = []
-                        file_ip_mapping[file_name].append(ip)
-
-        return file_ip_mapping
-
-    def download_file_from_ips(self, file_name, ips):
-        download_location = self.download
-        file_path = os.path.join(self.file_path, file_name)
-        file_size = os.path.getsize(file_path)
-
-        for ip in ips:
-            try:
-                print("Attempting to download {} from {}".format(file_name, ip))
-                # Connect to the IP on self.port
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as download_socket:
-                    download_socket.connect((ip, self.port))
-
-                    # Calculate the range of bytes to download
-                    total_parts = len(ips)
-                    part_size = file_size // total_parts
-                    start_byte = part_size * ips.index(ip)
-                    end_byte = start_byte + part_size if ips.index(ip) != total_parts - 1 else file_size
-
-                    # Send the file name and range to request the file part
-                    request_data = {'file_name': file_name, 'start_byte': start_byte, 'end_byte': end_byte}
-                    download_socket.send(json.dumps(request_data).encode())
-
-                    # Receive the file data
-                    received_data = b""
-                    while True:
-                        data = download_socket.recv(4096)
-                        if not data:
-                            break
-                        received_data += data
-
-                    # Save the received file part to the specified download location
-                    file_part_path = os.path.join(download_location, "{}_part{}".format(file_name, ips.index(ip)))
-                    with open(file_part_path, 'wb') as file:
-                        file.write(received_data)
-
-                    print("Download of {} from {} completed. Saved to {}".format(file_name, ip, file_part_path))
-
-            except Exception as e:
-                print("Error while downloading from {}: {}".format(ip, e))
-    def listening(self):
-        listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listen_socket.bind((self.get_local_ip(), self.port))
-        listen_socket.listen(5)
-        print("Listening for incoming connections on {}:{}".format(self.get_local_ip(), self.port))
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_socket.listen(self.MAX_WAITING)
+        print("Server started on {}:{}".format(self.host, self.port))
 
         while True:
-            client_socket, client_address = listen_socket.accept()
-            print("Connection from {}:{}".format(client_address[0], client_address[1]))
-
-            # Handle the connection in a separate thread
-            client_thread = threading.Thread(target=self.handle_incoming_connection, args=(client_socket,))
+            client_socket, client_address = self.server_socket.accept()
+            print("Connection from {}.".format(client_address))
+            self.connections.append(client_socket)
+            client_thread = threading.Thread(target=self.handle_client, args=(client_socket,))
             client_thread.start()
 
-    def start_listening(self):
-        data_listening_thread = threading.Thread(target=self.listening)
-        data_listening_thread.daemon = True
-        data_listening_thread.start()
-
-    def handle_incoming_connection(self, client_socket):
+    def handle_client(self, client_socket):
         try:
-            # Receive data from the client
-            data = client_socket.recv(4096)
+            while True:
+                # Continuously try to read from the socket
+                data = client_socket.recv(4096)
+                if data:
+                    # Decode and process data as long as it's being received
+                    data_str = data.decode()
+                    received_data = json.loads(data_str)
+                    ip = received_data['ip']
+                    files_list = received_data['files']
+                    self.files_per_client[ip] = json.loads(files_list)  # Assume files_list is also a JSON string
+                    print("Received updated file list from {}: {}".format(ip, self.files_per_client[ip]))
 
-            if data:
-                # Decode the received data (assuming it's a JSON with file name and range)
-                request_data = json.loads(data.decode())
-                file_name = request_data['file_name']
-                start_byte = request_data['start_byte']
-                end_byte = request_data['end_byte']
-
-                # Check if the requested file exists
-                file_path = os.path.join(self.file_path, file_name)
-                if os.path.exists(file_path):
-                    # Open the file, read the specified part, and send it to the client
-                    with open(file_path, 'rb') as file:
-                        file.seek(start_byte)
-                        file_data = file.read(end_byte - start_byte)
-                        client_socket.sendall(file_data)
-                        print("File part of {} sent to {}".format(file_name, client_socket.getpeername()))
+                    # Send the updated list to the client periodically or upon change
+                    files_per_client_json = json.dumps(self.files_per_client)
+                    client_socket.send(files_per_client_json.encode())
                 else:
-                    # Send a message indicating that the file doesn't exist
-                    error_message = "File {} not found".format(file_name)
-                    client_socket.sendall(error_message.encode())
-        except Exception as e:
-            print("Error handling incoming connection:", e)
+                    # If no data is received, assume the connection is closed
+                    break
+        except socket.error as e:
+            print("Socket error:", e)
+        except json.JSONDecodeError as e:
+            print("JSON decode error:", e)
         finally:
-            # Close the client socket
+            # Remove the client from the connections list and close the socket
+            print("Connection closed by the client.")
+            for ip,files in list(self.files_per_client.items()):
+                if ip ==client_socket.getpeername()[0]:
+                    del self.files_per_client[ip]
+                    print("Removed {} from the file list".format(ip))
+            self.connections.remove(client_socket)
             client_socket.close()
+            
 
-def read_user_input(client):
-    while True:
-        command = input("Enter a command (view, download, exit): ").strip().lower()
-        if command == 'view':
-            print(client.files_per_client)
-        elif command == 'download':
-            file_ip_mapping = client.download_list()
-            print("Available files for download:")
-            for file_name in file_ip_mapping.keys():
-                print("- {}".format(file_name))
-            chosen_file = input("Enter the name of the file you want to download: ").strip().lower()
-            if chosen_file in file_ip_mapping:
-                client.download_file_from_ips(chosen_file, file_ip_mapping[chosen_file])
-            else:
-                print("File not found.")
-        elif command == 'exit':
-            client.close()
-            sys.exit()
-        else:
-            print("Invalid command. Type 'exit' to quit.")
 
+# Main function
 def main():
-    print("This is the main function in this Python P2P Program. (Client)")
-    client = Client()
-    client.connect()
-    user_input_thread = threading.Thread(target=read_user_input, args=(client,))
-    user_input_thread.start()
-    user_input_thread.join()  # Wait for the user input thread to finish
+   # print("This is the main function in this Python P2P Program. (Server Edition)")
+    print("""
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⣤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⢰⣦⡀⠀⠀⠀⠀⠀⣰⣿⣿⣿⣷⣄⠀⠀⠀⠀⠀⢀⣴⣦⠀⠀⠀⠀
+⠀⠀⠀⠀⣿⣿⣿⣦⡀⠀⠀⣼⣿⣿⣿⣿⣿⣿⣆⠀⠀⢀⣴⣿⣿⣿⠀⠀⠀⠀
+⠀⠀⠀⠀⣿⣿⣿⣿⣷⡄⠘⣿⣿⣿⣿⣿⣿⣿⡿⠀⣴⣿⣿⣿⣿⣿⠀⠀⠀⠀
+⠀⢸⣦⡀⠙⢿⣿⣿⣿⣿⠆⠈⠛⣋⣉⣉⡛⠛⠀⢾⣿⣿⣿⣿⡿⠟⢀⣤⡆⠀
+⠀⢸⣿⣿⣷⣄⠙⢿⠟⢁⣴⣾⣿⠿⠛⠻⣿⣿⣦⣄⠙⢿⡿⠋⣀⣴⣿⣿⡇⠀
+⠀⢸⣿⣿⣿⣿⣷⣄⠐⢿⣿⠟⢁⣴⣾⣦⡀⠙⢿⣿⡷⠀⣠⣾⣿⣿⣿⣿⡇⠀
+⠀⢸⣿⣿⣿⣿⣿⣿⣦⡀⠁⣴⣿⣿⣿⣿⣿⣦⡈⠋⣠⣾⣿⣿⣿⣿⣿⣿⠃⠀         Welcome to Lotus Leaf (Server Edition)
+⠀⠈⣿⣿⣿⣿⣿⣿⡟⢀⣾⣿⣿⣿⣿⣿⣿⣿⣷⡀⢻⣿⣿⣿⣿⣿⣿⡏⠀⠀
+⠀⠀⠸⣿⣿⣿⣿⣿⠁⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣇⠈⣿⣿⣿⣿⣿⡟⠀⠀⠀
+⠀⠀⠀⠹⣿⣿⣿⣿⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⣿⣿⣿⣿⡟⠁⠀⠀⠀
+⠀⠀⠀⠀⠈⠻⣿⣿⠀⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⢀⣿⣿⡿⠋⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠈⠛⠧⠘⣿⣿⣿⣿⣿⣿⣿⣿⡿⠁⠼⠋⠁⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠛⠛⠛⠛⠛⠛⠛⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ """)
+
+    server = Server()
+    server.start()
 
 if __name__ == "__main__":
     main()
+    while True:
+        pass
