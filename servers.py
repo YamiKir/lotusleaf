@@ -49,29 +49,58 @@ class Server:
             client_thread.start()
 
     def handle_client(self, client_socket):
-        data = client_socket.recv(4096)
-        if data:
-            data_str = data.decode()
-            received_data = json.loads(data_str)
-            ip = received_data['ip']
-            files_list = received_data['files']
-            self.files_per_client[ip] = files_list  # Update files_per_client dictionary
-            print("Received file list from {}: {}".format(ip, files_list))
+        try:
+            while True:
+                # Continuously try to read from the socket
+                data = client_socket.recv(4096)
+                if data:
+                    # Decode and process data as long as it's being received
+                    data_str = data.decode()
+                    received_data = json.loads(data_str)
+                    ip = received_data['ip']
+                    files_list = received_data['files']
+                    self.files_per_client[ip] = json.loads(files_list)  # Assume files_list is also a JSON string
+                    print("Received updated file list from {}: {}".format(ip, self.files_per_client[ip]))
 
-        while True:
-            try:
-                # Send files_per_client to client
-                files_per_client_json = json.dumps(self.files_per_client)
-                client_socket.send(files_per_client_json.encode())
-                time.sleep(5)
-            except socket.error:
-                print("Connection closed by the client.")
-                self.connections.remove(client_socket)
-                break
+                    # Send the updated list to the client periodically or upon change
+                    files_per_client_json = json.dumps(self.files_per_client)
+                    client_socket.send(files_per_client_json.encode())
+                else:
+                    # If no data is received, assume the connection is closed
+                    break
+        except socket.error as e:
+            print("Socket error:", e)
+        except json.JSONDecodeError as e:
+            print("JSON decode error:", e)
+        finally:
+            # Remove the client from the connections list and close the socket
+            print("Connection closed by the client.")
+            self.connections.remove(client_socket)
+            client_socket.close()
+
 
 # Main function
 def main():
-    print("This is the main function in this Python P2P Program. (Server Edition)")
+   # print("This is the main function in this Python P2P Program. (Server Edition)")
+    print("""
+
+       .=.A.=.
+ __.=./\ / \ /\.=.__
+(-.'-;  |   |  ;-'.-)
+   \ `\/     \/` /
+    ;  `\   /`  ;
+    |    | |    |
+    ;,"-.-"-.-",;
+     \\/^\ /^\//     Welcome to Lotus Leaf (Server Edition)
+      \   `   /
+  jgs  ',___,'
+        \\V//
+         |||
+         |||
+         |||
+
+         """)
+
     server = Server()
     server.start()
 
