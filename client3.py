@@ -3,6 +3,7 @@ import threading
 import json
 import os
 import sys
+import time
 
 def read_setup(file_name):
     try:
@@ -48,7 +49,7 @@ class Client:
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client_socket.connect((self.host, self.port))
         print("Connected to server at {}:{}".format(self.host, self.port))
-        self.send_file_list()
+        self.start_file_list()
         self.start_listening()
         self.start_reading_data()
         
@@ -59,11 +60,21 @@ class Client:
             print("Connection closed")
 
     def send_file_list(self):
-        file_list = files_in_dir(self.file_path)
-        file_list_json = json.dumps(file_list)
-        data_to_send = {'ip': self.get_local_ip(), 'files': file_list_json}
-        with self.lock:
-            self.client_socket.send(json.dumps(data_to_send).encode())
+        while True:
+            try:
+                #print("Preparing to send file list...")
+                file_list = files_in_dir(self.file_path)
+                file_list_json = json.dumps(file_list)
+                data_to_send = {'ip': self.get_local_ip(), 'files': file_list_json}
+                #print(f"Sending data: {data_to_send}")
+                with self.lock:
+                    self.client_socket.send(json.dumps(data_to_send).encode())
+               # print("Data sent successfully.")
+                time.sleep(5)
+            except Exception as e:
+                print("Failed to send file list: ", e)
+                break  # Optionally remove the break if you want the loop to continue even after a failure
+
 
     def read_data(self):
         while True:
@@ -95,18 +106,18 @@ class Client:
         local_ip = self.get_local_ip()
 
         with self.lock:
-            for ip, files_json in self.files_per_client.items():
+            for ip, files in self.files_per_client.items():
                 if ip != local_ip:
-                    files_list = json.loads(files_json)
+                    files_list = files  # Assuming 'files' is already a list
                     for file_info in files_list:
                         if len(file_info) >= 2:
-                            file_name = file_info[0]
-                            file_size = file_info[1]
+                            file_name, file_size = file_info
                             if file_name not in file_ip_mapping:
                                 file_ip_mapping[file_name] = {'ips': [], 'size': file_size}
                             file_ip_mapping[file_name]['ips'].append(ip)
 
         return file_ip_mapping
+
     
 
     def download_file_from_ips(self, file_name, ips):
@@ -143,7 +154,6 @@ class Client:
 
 
     def download_file_chunks_from_ips(self, file_name, ips):
-       
         download_location = self.download
         file_path = os.path.join(download_location, file_name)
 
@@ -152,44 +162,52 @@ class Client:
         if file_info is None:
             print("File {} not found in download list.".format(file_name))
             return
+
         total_file_size = file_info['size']
-        # Determine chunk size dynamically based on file size
-        chunk_size = max(1024, total_file_size // 100)  # Adjust the divisor for smaller or larger chunks
-        print("chunk size={}, file size={}".format(chunk_size,total_file_size))
+        chunk_size = max(1024, total_file_size // 100)  # Determine chunk size based on file size
+        print("chunk size={}, file size={}".format(chunk_size, total_file_size))
+
         with open(file_path, 'wb') as file:
             downloaded_size = 0
-            print("{} is the total file size".format(total_file_size))
+            ip_index = 0  # Start with the first IP in the list
+
             while downloaded_size < total_file_size:
-                for ip in ips:
-                    try:
-                        print("Attempting to download {} from {}".format(file_name, ip))
-                        # Connect to the IP on self.port
-                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as download_socket:
-                            download_socket.connect((ip, self.port))
+                ip = ips[ip_index]  # Select IP based on current index
+                ip_index = (ip_index + 1) % len(ips)  # Move to the next IP, wrap around if at the end
 
-                            # Send the file name to request the file
-                            download_socket.send(file_name.encode())
+                try:
+                    print("Attempting to download {} from {}".format(file_name, ip))
+                    # Connect to the current IP on self.port
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as download_socket:
+                        download_socket.connect((ip, self.port))
+                        
+                        # Prepare and send the request for a chunk
+                        file_chunk_info = {
+                            'name': file_name,
+                            'start': downloaded_size,
+                            'size': chunk_size
+                        }
+                        download_socket.send(json.dumps(file_chunk_info).encode())
 
-                            # Receive and write the file chunk by chunk
-                            if downloaded_size < total_file_size:
-                                remaining_size = total_file_size - downloaded_size
-                                recv_size = min(chunk_size, remaining_size)
-                            #    print(remaining_size)
-                                data = download_socket.recv(recv_size)
-                                if not data:
-                                    break
-                                file.write(data)
-                                downloaded_size += len(data)
+                        # Receive the chunk of the file
+                        while True:
+                            data = download_socket.recv(chunk_size)
+                            if not data:
+                                break
+                            file.write(data)
+                            downloaded_size += len(data)
 
+                            # Check if the file is fully downloaded
                             if downloaded_size >= total_file_size:
-                                break  # Stop downloading if the file has reached its size
+                                break
 
-                        print("Download of {} chunk from {} completed. Chunk size ={}".format(file_name, ip, recv_size))
+                    print("Download of {} chunk from {} completed. Chunk size ={}".format(file_name, ip, len(data)))
 
-                    except Exception as e:
-                        print("Error while downloading chunk from {}: {}".format(ip, e))
+                except Exception as e:
+                    print("Error while downloading chunk from {}: {}".format(ip, e))
 
-            print("File reconstruction completed. Saved to {}. Size={}".format(file_path,downloaded_size))
+            print("File reconstruction completed. Saved to {}. Size={}".format(file_path, downloaded_size))
+
 
 
 
@@ -211,6 +229,10 @@ class Client:
         data_listening_thread = threading.Thread(target=self.listening)
         data_listening_thread.daemon = True
         data_listening_thread.start()
+    def start_file_list(self):
+        data_file_thread = threading.Thread(target=self.send_file_list)
+        data_file_thread.daemon = True
+        data_file_thread.start()
 
     def handle_incoming_connection(self, client_socket):
         try:
@@ -218,17 +240,22 @@ class Client:
             data = client_socket.recv(4096)
 
             if data:
-                # Decode the received data (assuming it's a file name)
-                file_name = data.decode()
-
+                file_chunk_info=json.loads(data.decode())
+                
+                
+                file_name=file_chunk_info['name']
+                chunk_start=file_chunk_info['start']
+                chunk_size=file_chunk_info['size']
+                
                 # Check if the requested file exists
                 file_path = os.path.join(self.file_path, file_name)
                 if os.path.exists(file_path):
                     # Open the file and send its contents to the client
                     with open(file_path, 'rb') as file:
-                        file_data = file.read()
-                        client_socket.sendall(file_data)
-                        print("File {} sent to {}".format(file_name, client_socket.getpeername()))
+                        file.seek(chunk_start)
+                        chunk_data=file.read(chunk_size)
+                        client_socket.sendall(chunk_data)
+                        #print("Chunk {} sent to {}".format(file_name, client_socket.getpeername()))
                 else:
                     # Send a message indicating that the file doesn't exist
                     error_message = "File {} not found".format(file_name)
@@ -263,7 +290,24 @@ def read_user_input(client):
         
 
 def main():
-    print("This is the main function in this Python P2P Program. (Client)")
+    print("""
+
+       .=.A.=.
+ __.=./\ / \ /\.=.__
+(-.'-;  |   |  ;-'.-)
+   \ `\/     \/` /
+    ;  `\   /`  ;
+    |    | |    |
+    ;,"-.-"-.-",;
+     \\/^\ /^\//     Welcome to Lotus Leaf (Client Edition)
+      \   `   /
+  jgs  ',___,'
+        \\V//
+         |||
+         |||
+         |||
+
+         """)
     client = Client()
     client.connect()
     user_input_thread = threading.Thread(target=read_user_input, args=(client,))
