@@ -96,7 +96,7 @@ class Client:
 
         with self.lock:
             for ip, files_json in self.files_per_client.items():
-                if ip == local_ip:
+                if ip != local_ip:
                     files_list = json.loads(files_json)
                     for file_info in files_list:
                         if len(file_info) >= 2:
@@ -143,6 +143,7 @@ class Client:
 
 
     def download_file_chunks_from_ips(self, file_name, ips):
+       
         download_location = self.download
         file_path = os.path.join(download_location, file_name)
 
@@ -158,36 +159,37 @@ class Client:
         with open(file_path, 'wb') as file:
             downloaded_size = 0
             print("{} is the total file size".format(total_file_size))
-            for ip in ips:
-                try:
-                    print("Attempting to download {} from {}".format(file_name, ip))
-                    # Connect to the IP on self.port
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as download_socket:
-                        download_socket.connect((ip, self.port))
+            while downloaded_size < total_file_size:
+                for ip in ips:
+                    try:
+                        print("Attempting to download {} from {}".format(file_name, ip))
+                        # Connect to the IP on self.port
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as download_socket:
+                            download_socket.connect((ip, self.port))
 
-                        # Send the file name to request the file
-                        download_socket.send(file_name.encode())
+                            # Send the file name to request the file
+                            download_socket.send(file_name.encode())
 
-                        # Receive and write the file chunk by chunk
-                        while downloaded_size < total_file_size:
-                            remaining_size = total_file_size - downloaded_size
-                            recv_size = min(chunk_size, remaining_size)
-                            print(remaining_size)
-                            data = download_socket.recv(recv_size)
-                            if not data:
-                                break
-                            file.write(data)
-                            downloaded_size += len(data)
+                            # Receive and write the file chunk by chunk
+                            if downloaded_size < total_file_size:
+                                remaining_size = total_file_size - downloaded_size
+                                recv_size = min(chunk_size, remaining_size)
+                            #    print(remaining_size)
+                                data = download_socket.recv(recv_size)
+                                if not data:
+                                    break
+                                file.write(data)
+                                downloaded_size += len(data)
 
-                        if downloaded_size >= total_file_size:
-                            break  # Stop downloading if the file has reached its size
+                            if downloaded_size >= total_file_size:
+                                break  # Stop downloading if the file has reached its size
 
-                    print("Download of {} chunk from {} completed. Chunk size ={}".format(file_name, ip, recv_size))
+                        print("Download of {} chunk from {} completed. Chunk size ={}".format(file_name, ip, recv_size))
 
-                except Exception as e:
-                    print("Error while downloading chunk from {}: {}".format(ip, e))
+                    except Exception as e:
+                        print("Error while downloading chunk from {}: {}".format(ip, e))
 
-        print("File reconstruction completed. Saved to {}. Size={}".format(file_path,downloaded_size))
+            print("File reconstruction completed. Saved to {}. Size={}".format(file_path,downloaded_size))
 
 
 
@@ -249,7 +251,7 @@ def read_user_input(client):
                 print("- {}".format(file_name))
             chosen_file = input("Enter the name of the file you want to download: ").strip()
             if chosen_file in file_ip_mapping:
-                client.download_file_chunks_from_ips(chosen_file, file_ip_mapping[chosen_file])
+                client.download_file_chunks_from_ips(chosen_file, file_ip_mapping[chosen_file]['ips'])
             else:
                 print("File not found.")
         elif command == 'exit':
