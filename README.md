@@ -11,4 +11,4 @@ After the tracker server starts, it starts waiting for incomming connections fro
 
 You likely will need to provide adminstrative access since this requires network activity. 
 
-This current version works only locally or on the same network. You can use a virtual LAN service like LogMeIn Hamachi to send files over the internet (through the virtual connection provided).
+This current version works only locally or on the same network. You can likely use a virtual LAN service like LogMeIn Hamachi to send files over the internet (through the virtual connection provided) though I haven't tested that functionality yet.
