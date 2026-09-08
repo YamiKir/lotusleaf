@@ -1,4 +1,4 @@
 Tracker:localhost
 Port:80
-File Path:/home/enkidu/lotusleaf/files/
+File Path:/home/enkidu/projects/lotusleaf/files
 Download Path:
