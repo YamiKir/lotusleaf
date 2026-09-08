@@ -13,9 +13,12 @@ def read_setup(file_name):
                 if line.startswith("Tracker:"):
                     tracker_ip = line.split("Tracker:")[1].strip()
                     setup_info['Tracker IP'] = tracker_ip
-                elif line.startswith("Port:"):
-                    port = int(line.split("Port:")[1].strip())
-                    setup_info['Port'] = port
+                elif line.startswith("Tracker Port:"):
+                    port = int(line.split("Tracker Port:")[1].strip())
+                    setup_info['Tracker Port'] = port
+                elif line.startswith("Peer Port:"):
+                    port = int(line.split("Peer Port:")[1].strip())
+                    setup_info['Peer Port'] = port
                 elif line.startswith("File Path:"):
                     file_path = line.split("File Path:")[1].strip()
                     setup_info['File Path'] = file_path
@@ -38,7 +41,10 @@ class Client:
         
         setup_info = read_setup("setup.txt")
         self.host = setup_info['Tracker IP']
-        self.port = setup_info['Port']
+        self.host = setup_info['Tracker IP']
+        self.tport = setup_info['Tracker Port']
+        self.port = setup_info['Peer Port']
+        
         self.client_socket = None
         self.file_path = setup_info['File Path']
         self.download = setup_info['Download Path']
@@ -50,8 +56,8 @@ class Client:
     def connect(self):
         self.start_listening()
         self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client_socket.connect((self.host, self.port))
-        print("Connected to server at {}:{}".format(self.host, self.port))
+        self.client_socket.connect((self.host, self.tport))
+        print("Connected to tracker at {}:{}".format(self.host, self.tport))
         self.start_file_list()
         self.start_reading_data()
         

@@ -11,8 +11,8 @@ def read_setup(file_name):
                 if line.startswith("Tracker:"):
                     tracker_ip = line.split("Tracker:")[1].strip()
                     setup_info['Tracker IP'] = tracker_ip
-                elif line.startswith("Port:"):
-                    port = int(line.split("Port:")[1].strip())
+                elif line.startswith("Tracker Port:"):
+                    port = int(line.split("Tracker Port:")[1].strip())
                     setup_info['Port'] = port
             return setup_info
         print("Tracker IP or Port not found in the file.")

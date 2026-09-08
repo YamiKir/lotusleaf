@@ -1,4 +1,5 @@
-Tracker:localhost
-Port:5000
-File Path:/home/enkidu/projects/lotusleaf/files
-Download Path:/home/enkidu/projects/lotusleaf/files
+Tracker: 192.168.1.220
+Tracker Port: 5000
+Peer Port: 5001
+File Path: /home/enkidu/projects/lotusleaf/files
+Download Path: /home/enkidu/projects/lotusleaf/files
